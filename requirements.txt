@@ -1,0 +1,12 @@
+# Crawl & Kafka
+requests==2.31.0
+confluent-kafka==2.3.0
+
+# Spark
+pyspark==3.3.0
+
+# Cassandra - 3.29.2 fix TarFile.chown() bug, compatible Python 3.12+
+cassandra-driver==3.30.0
+
+# Utils
+python-dotenv==1.0.0
