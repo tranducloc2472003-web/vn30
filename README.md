@@ -62,14 +62,13 @@ ssi-pipeline/
 ### 1. Yêu cầu
 
 - Docker Desktop
-- Python 3.10+
+- Python 3.11
 - Git
 
 ### 2. Clone & cài dependencies
 
 ```bash
-git clone <your-repo-url>
-cd ssi-pipeline
+git clone https://github.com/tranducloc2472003-web/vn30.git
 pip install -r requirements.txt
 ```
 
@@ -193,6 +192,7 @@ docker-compose down -v
 |---|---|
 | `ohlcv_1m` | Nến 1 phút: open, high, low, close, volume, vwap |
 | `features` | Chỉ báo kỹ thuật: RSI 14, MA 20/50, Bollinger Bands |
+<img width="1099" height="340" alt="image" src="https://github.com/user-attachments/assets/bf564507-072c-4bdd-be0a-8dc4caee93cb" />
 
 ## Dữ liệu crawl
 
@@ -206,3 +206,8 @@ Danh sách mã VN30 được fetch động từ SSI khi khởi động — tự 
 - Producer poll SSI mỗi **5 giây** (configurable qua `SSI_POLL_INTERVAL`)
 - Data Cassandra tự xóa sau **30 ngày** (TTL)
 - Kafka retention: **24 giờ**
+
+# THÀNH QUẢ:
+
+<img width="1919" height="943" alt="image" src="https://github.com/user-attachments/assets/4c8d307f-da86-4833-9135-f276f5aaeaee" />
+
