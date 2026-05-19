@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: Cassandra-SSI
+    type: hadesarchitect-cassandra-datasource
+    access: proxy
+    isDefault: true
+    jsonData:
+      host: cassandra
+      port: 9042
+      keyspace: ssi
+      consistency: LOCAL_ONE
+      timeout: 30
+    version: 1
+    editable: true

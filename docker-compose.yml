@@ -1,0 +1,161 @@
+# ─────────────────────────────────────────────
+#  SSI iBroad Realtime Pipeline
+#  Stack: Kafka · Spark · Cassandra · Kafka UI
+# ─────────────────────────────────────────────
+
+networks:
+  pipeline:
+    driver: bridge
+
+volumes:
+  cassandra_data:
+  kafka_data:
+  grafana_data:
+
+services:
+
+  # ── Zookeeper (required by Kafka) ──────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    networks: [pipeline]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka Broker ───────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    networks: [pipeline]
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"       # internal access (other containers)
+      - "29092:29092"     # external access (your host machine)
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_SEGMENT_BYTES: 104857600
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Kafka topic setup (runs once then exits) ──
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    networks: [pipeline]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: >-
+      echo 'Creating Kafka topics...' &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic ssi.ticks.raw --partitions 3 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic ssi.ohlcv.1m --partitions 3 --replication-factor 1 &&
+      echo 'Topics created:' &&
+      kafka-topics --bootstrap-server kafka:9092 --list
+
+  # ── Kafka UI (web dashboard) ───────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks: [pipeline]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  # ── Cassandra ──────────────────────────────
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    networks: [pipeline]
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+      - ./cassandra-init.cql:/docker-entrypoint-initdb.d/init.cql:ro
+    environment:
+      CASSANDRA_CLUSTER_NAME: ssi_cluster
+      CASSANDRA_DC: dc1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: "512M"
+      HEAP_NEWSIZE: "128M"
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ── Spark Master ───────────────────────────
+  spark-master:
+    image: bde2020/spark-master:3.3.0-hadoop3.3  # Spark 3.3 + Hadoop 3.3
+    container_name: spark-master
+    networks: [pipeline]
+    environment:
+      - INIT_DAEMON_STEP=setup_spark
+    ports:
+      - "7077:7077"     # Spark master port
+      - "8081:8080"     # Spark master web UI
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Spark Worker ───────────────────────────
+  spark-worker:
+    image: bde2020/spark-worker:3.3.0-hadoop3.3  # phải cùng tag với master
+    container_name: spark-worker
+    networks: [pipeline]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=2
+    ports:
+      - "8082:8081"     # Spark worker web UI
+
+  # ── Grafana ────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    networks: [pipeline]
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=hadesarchitect-cassandra-datasource
